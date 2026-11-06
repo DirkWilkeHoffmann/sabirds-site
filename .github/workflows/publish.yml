@@ -1,0 +1,103 @@
+# Publishes the SA Birds app (DirkWilkeHoffmann/sa-bird-flashcards) at https://sabirds.co.za.
+# Keep the "Put dev under /dev/ …" step in step with that repository's .github/workflows/pages.yml.
+name: Publish sabirds.co.za
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - name: What the app's branches are at now
+        id: shas
+        run: |
+          app=https://github.com/DirkWilkeHoffmann/sa-bird-flashcards.git
+          key=$(git ls-remote "$app" refs/heads/main refs/heads/dev refs/heads/tips | awk '{print $1}' | tr '\n' '-')
+          echo "key=published-${key}${{ hashFiles('.github/workflows/publish.yml') }}" >> "$GITHUB_OUTPUT"
+
+      - name: Already published?
+        id: seen
+        uses: actions/cache/restore@v4
+        with:
+          path: .published
+          key: ${{ steps.shas.outputs.key }}
+          lookup-only: true
+
+      - name: Check out main
+        if: steps.seen.outputs.cache-hit != 'true' || github.event_name != 'schedule'
+        uses: actions/checkout@v4
+        with:
+          repository: DirkWilkeHoffmann/sa-bird-flashcards
+          ref: main
+          path: site
+
+      - name: Check out dev (if it exists)
+        if: steps.seen.outputs.cache-hit != 'true' || github.event_name != 'schedule'
+        uses: actions/checkout@v4
+        continue-on-error: true
+        with:
+          repository: DirkWilkeHoffmann/sa-bird-flashcards
+          ref: dev
+          path: dev
+
+      - name: Check out tips (if it exists)
+        if: steps.seen.outputs.cache-hit != 'true' || github.event_name != 'schedule'
+        uses: actions/checkout@v4
+        continue-on-error: true
+        with:
+          repository: DirkWilkeHoffmann/sa-bird-flashcards
+          ref: tips
+          path: tips
+
+      - name: Put dev under /dev/ and tips under /tips/, each with its own name and icon
+        if: steps.seen.outputs.cache-hit != 'true' || github.event_name != 'schedule'
+        run: |
+          for env in dev tips; do
+            [ -d "$env" ] || continue
+            case $env in dev) label="Dev" ;; tips) label="Tips" ;; esac
+            rm -rf "$env/.git" "site/$env"
+            sed -i "s/\"name\": \"SA Bird Flashcards\"/\"name\": \"SA Birds $label\"/; s/\"short_name\": \"SA Birds\"/\"short_name\": \"Birds $label\"/" "$env/manifest.webmanifest"
+            sed -i "s/content=\"SA Birds\"/content=\"Birds $label\"/; s/<title>SA Bird Flashcards<\/title>/<title>SA Birds $label<\/title>/" "$env/index.html"
+            if [ -d "$env/icons/$env" ]; then cp "$env/icons/$env/"*.png "$env/icons/"; fi
+            mv "$env" "site/$env"
+          done
+          rm -rf site/.git site/.github
+          echo "sabirds.co.za" > site/CNAME
+
+      - uses: actions/configure-pages@v5
+        if: steps.seen.outputs.cache-hit != 'true' || github.event_name != 'schedule'
+
+      - uses: actions/upload-pages-artifact@v3
+        if: steps.seen.outputs.cache-hit != 'true' || github.event_name != 'schedule'
+        with:
+          path: site
+
+      - id: deploy
+        if: steps.seen.outputs.cache-hit != 'true' || github.event_name != 'schedule'
+        uses: actions/deploy-pages@v4
+
+      - name: Remember what was published
+        if: steps.seen.outputs.cache-hit != 'true'
+        run: mkdir -p .published && echo "${{ steps.shas.outputs.key }}" > .published/key
+
+      - uses: actions/cache/save@v4
+        if: steps.seen.outputs.cache-hit != 'true'
+        with:
+          path: .published
+          key: ${{ steps.shas.outputs.key }}
