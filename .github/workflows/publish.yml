@@ -28,7 +28,7 @@ jobs:
         id: shas
         run: |
           app=https://github.com/DirkWilkeHoffmann/sa-bird-flashcards.git
-          key=$(git ls-remote "$app" refs/heads/main refs/heads/dev refs/heads/tips | awk '{print $1}' | tr '\n' '-')
+          key=$(git ls-remote "$app" refs/heads/main refs/heads/dev | awk '{print $1}' | tr '\n' '-')
           echo "key=published-${key}${{ hashFiles('.github/workflows/publish.yml') }}" >> "$GITHUB_OUTPUT"
 
       - name: Already published?
@@ -56,21 +56,12 @@ jobs:
           ref: dev
           path: dev
 
-      - name: Check out tips (if it exists)
-        if: steps.seen.outputs.cache-hit != 'true' || github.event_name != 'schedule'
-        uses: actions/checkout@v4
-        continue-on-error: true
-        with:
-          repository: DirkWilkeHoffmann/sa-bird-flashcards
-          ref: tips
-          path: tips
-
-      - name: Put dev under /dev/ and tips under /tips/, each with its own name and icon
+      - name: Put dev under /dev/, with its own name and icon
         if: steps.seen.outputs.cache-hit != 'true' || github.event_name != 'schedule'
         run: |
-          for env in dev tips; do
-            [ -d "$env" ] || continue
-            case $env in dev) label="Dev" ;; tips) label="Tips" ;; esac
+          for env in dev; do
+            [ -f "$env/index.html" ] || continue  # no dev branch: the checkout left an empty folder
+            label="Dev"
             rm -rf "$env/.git" "site/$env"
             sed -i "s/\"name\": \"SA Bird Flashcards\"/\"name\": \"SA Birds $label\"/; s/\"short_name\": \"SA Birds\"/\"short_name\": \"Birds $label\"/" "$env/manifest.webmanifest"
             sed -i "s/content=\"SA Birds\"/content=\"Birds $label\"/; s/<title>SA Bird Flashcards<\/title>/<title>SA Birds $label<\/title>/" "$env/index.html"
